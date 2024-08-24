@@ -1,9 +1,3 @@
-/* While this template provides a good starting point for using Wear Compose, you can always
- * take a look at https://github.com/android/wear-os-samples/tree/main/ComposeStarter and
- * https://github.com/android/wear-os-samples/tree/main/ComposeAdvanced to find the most up to date
- * changes to the libraries and their usages.
- */
-
 package com.example.activityrelay.presentation
 
 import android.content.Context
@@ -31,6 +25,7 @@ import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
+import androidx.wear.compose.material.Button
 import com.example.activityrelay.presentation.theme.ActivityRelayTheme
 
 class MainActivity : ComponentActivity() {
@@ -45,8 +40,7 @@ class MainActivity : ComponentActivity() {
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-        rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) // TYPE_ROTATION_VECTOR, TYPE_GEOMAGNETIC_ROTATION_VECTOR
-
+        rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
         setContent {
             var straightAcceleration by remember { mutableStateOf(Triple(0f, 0f, 0f)) }
@@ -58,26 +52,39 @@ class MainActivity : ComponentActivity() {
 
             var rotation by remember { mutableStateOf(Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)) }
             var spinVelocity by remember { mutableStateOf(0f) }
+            var minSpinVelocity by remember { mutableStateOf(0f) }
             var maxSpinVelocity by remember { mutableStateOf(0f) }
 
             var previousRotationVectorTimestamp = 0L
 
+            // Function to reset all values to their defaults
+            val resetValues = {
+                straightAcceleration = Triple(0f, 0f, 0f)
+                maximumStraightAcceleration = Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)
+
+                spinAcceleration = Triple(0f, 0f, 0f)
+                minimumSpinAcceleration = Triple(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE)
+                maximumSpinAcceleration = Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)
+
+                rotation = Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)
+                spinVelocity = 0f
+                minSpinVelocity = 0f
+                maxSpinVelocity = 0f
+            }
+
             // Use DisposableEffect to handle sensor registration and un-registration
-            DisposableEffect(Unit)
-            {
-                val listener = object : SensorEventListener
-                {
-                    override fun onSensorChanged(event: SensorEvent?)
-                    {
+            DisposableEffect(Unit) {
+                val listener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent?) {
                         event?.let {
-                            when (it.sensor.type)
-                            {
+                            when (it.sensor.type) {
                                 Sensor.TYPE_ACCELEROMETER ->
                                 {
                                     straightAcceleration = Triple(it.values[0], it.values[1], it.values[2])
                                     maximumStraightAcceleration = VectorUtils.max(
                                         VectorUtils.abs(straightAcceleration),
-                                        maximumStraightAcceleration)
+                                        maximumStraightAcceleration
+                                    )
                                 }
                                 Sensor.TYPE_GYROSCOPE ->
                                 {
@@ -88,12 +95,13 @@ class MainActivity : ComponentActivity() {
                                 Sensor.TYPE_ROTATION_VECTOR ->
                                 {
                                     // Convert nano seconds to seconds
-                                    val deltaTime = ( event.timestamp - previousRotationVectorTimestamp) * 1e-9f
+                                    val deltaTime = (event.timestamp - previousRotationVectorTimestamp) * 1e-9f
 
                                     // values[2] has the compass rotation
                                     spinVelocity = (rotation.third - it.values[2]) / deltaTime
                                     rotation = Triple(it.values[0], it.values[1], it.values[2])
 
+                                    minSpinVelocity = minOf(minSpinVelocity, spinVelocity)
                                     maxSpinVelocity = maxOf(maxSpinVelocity, spinVelocity)
 
                                     previousRotationVectorTimestamp = event.timestamp
@@ -121,13 +129,14 @@ class MainActivity : ComponentActivity() {
                 maximumSpinAcceleration,
                 rotation,
                 spinVelocity,
+                minSpinVelocity,
                 maxSpinVelocity,
+                onButtonClick = resetValues // Pass the reset function to the button
             )
         }
     }
 }
 
-// Composable functions outside of class are for UI logic
 @Composable
 fun ShowSensorData(
     straightAcceleration: Triple<Float, Float, Float>,
@@ -137,31 +146,40 @@ fun ShowSensorData(
     maximumSpinAcceleration: Triple<Float, Float, Float>,
     rotation: Triple<Float, Float, Float>,
     spinVelocity: Float,
+    minSpinVelocity: Float,
     maxSpinVelocity: Float,
-)
-{
-    Text(
-        modifier = Modifier.fillMaxWidth(),
-        textAlign = TextAlign.Center,
-        color = MaterialTheme.colors.primary,
-        text = ("\n\n\n"
-                + "Rotation: %.2f | %.2f | %.2f".format(rotation.first, rotation.second, rotation.third) + "\n\n"
-                + "Linear: %.2f | %.2f | %.2f".format(straightAcceleration.first, straightAcceleration.second, straightAcceleration.third) + "\n\n"
-                + "Spin accel: %.2f | %.2f | %.2f".format(spinAcceleration.first, spinAcceleration.second, spinAcceleration.third) + "\n"
-                + "Max spin accel: %.2f".format(maximumSpinAcceleration.third) + "\n"
-                + "Spin velo: %.2f".format(spinVelocity) + "\n"
-                + "Spin velo (max): %.2f".format(maxSpinVelocity) + "\n"
-                ))
+    onButtonClick: () -> Unit // Add this parameter for button click handling
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colors.primary,
+            text = ("\n\n\n"
+                    + "Linear accel: %.2f | %.2f | %.2f".format(straightAcceleration.first, straightAcceleration.second, straightAcceleration.third) + "\n"
+                    + "Spin accel: %.2f | %.2f | %.2f".format(spinAcceleration.first, spinAcceleration.second, spinAcceleration.third) + "\n"
+                    + "Rotation: %.2f | %.2f | %.2f".format(rotation.first, rotation.second, rotation.third) + "\n\n"
+                    + "Spin velo: %.2f".format(spinVelocity) + "\n"
+                    + "Spin velo (clockwise): %.2f".format(maxSpinVelocity) + "\n"
+                    + "Spin velo (counter \"): %.2f".format(minSpinVelocity) + "\n"
+                    )
+        )
+
+        Button(
+            onClick = { onButtonClick() }, // Trigger the passed lambda function
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = "Reset Values")
+        }
+    }
 }
 
 @Composable
-fun WearApp(greetingName: String)
-{
+fun WearApp(greetingName: String) {
     ActivityRelayTheme {
-        /* If you have enough items in your list, use [ScalingLazyColumn] which is an optimized
-         * version of LazyColumn for wear devices with some added features. For more information,
-         * see d.android.com/wear/compose.
-         */
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -177,6 +195,8 @@ fun WearApp(greetingName: String)
                 Triple(0f, 0f, 0f),
                 0f,
                 0f,
+                0f,
+                onButtonClick = {} // Placeholder for preview
             )
         }
     }
@@ -184,7 +204,6 @@ fun WearApp(greetingName: String)
 
 @Preview(device = Devices.WEAR_OS_SMALL_ROUND, showSystemUi = true)
 @Composable
-fun DefaultPreview()
-{
+fun DefaultPreview() {
     WearApp("Preview Android")
 }
