@@ -20,12 +20,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.Button
+import com.example.activityrelay.R
 import com.example.activityrelay.presentation.theme.ActivityRelayTheme
 
 class MainActivity : ComponentActivity() {
@@ -55,7 +58,8 @@ class MainActivity : ComponentActivity() {
             var maxSpinVelocity by remember { mutableStateOf(Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)) }
 
             var previousRotation by remember { mutableStateOf(Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)) }
-            var previousRotationVectorTimestamp = 0L
+            var previousRotationVectorTimestamp by remember { mutableStateOf(0L) }
+
 
             // Function to reset all values to their defaults
             val resetValues = {
@@ -66,13 +70,9 @@ class MainActivity : ComponentActivity() {
                 minimumSpinAcceleration = Triple(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE)
                 maximumSpinAcceleration = Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)
 
-                previousRotation = Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)
                 spinVelocity = Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)
                 minSpinVelocity = Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)
                 maxSpinVelocity = Triple(Float.MIN_VALUE, Float.MIN_VALUE, Float.MIN_VALUE)
-
-                previousRotation =
-                    previousRotationVectorTimestamp=
             }
 
             // Use DisposableEffect to handle sensor registration and un-registration
@@ -98,26 +98,27 @@ class MainActivity : ComponentActivity() {
                                 Sensor.TYPE_ROTATION_VECTOR ->
                                 {
                                     // Convert nano seconds to seconds
-                                    val deltaTime = (event.timestamp - previousRotationVectorTimestamp) * 1e-9f
+                                    val deltaTime =
+                                        (event.timestamp - previousRotationVectorTimestamp) * 1e-9f
 
-                                    // Process rotation vector for each axis
+                                    // Convert to radian
                                     val rotation = Triple(
-                                        processRotationAxis(previousRotation.first, it.values[0]),
-                                        processRotationAxis(previousRotation.second, it.values[1]),
-                                        processRotationAxis(previousRotation.third, it.values[2])
+                                        convertToRadian(it.values[0]),
+                                        convertToRadian(it.values[1]),
+                                        convertToRadian(it.values[2]),
                                     )
 
                                     // Calculate spin velocity for each axis
                                     spinVelocity = Triple(
-                                        (previousRotation.first - rotation.first) / deltaTime,
-                                        (previousRotation.second - rotation.second) / deltaTime,
-                                        (previousRotation.third - rotation.third) / deltaTime
+                                        (getAngleDifference(previousRotation.first, rotation.first)) / deltaTime,
+                                        (getAngleDifference(previousRotation.second, rotation.second)) / deltaTime,
+                                        (getAngleDifference(previousRotation.third, rotation.third)) / deltaTime
                                     )
                                     // Update the max and min spin velocities
-                                    minSpinVelocity = VectorUtils.min(minSpinVelocity, spinVelocity)
-                                    maxSpinVelocity = VectorUtils.max(maxSpinVelocity, spinVelocity)
-
-                                    // Update the current rotation values
+                                    minSpinVelocity =
+                                        VectorUtils.min(minSpinVelocity, spinVelocity)
+                                    maxSpinVelocity =
+                                        VectorUtils.max(maxSpinVelocity, spinVelocity)
 
                                     // Update the timestamp
                                     previousRotationVectorTimestamp = event.timestamp
@@ -129,9 +130,9 @@ class MainActivity : ComponentActivity() {
 
                     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
                 }
-                sensorManager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
-                sensorManager.registerListener(listener, gyroscope, SensorManager.SENSOR_DELAY_NORMAL)
-                sensorManager.registerListener(listener, rotationVector, SensorManager.SENSOR_DELAY_NORMAL)
+                sensorManager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_FASTEST)
+                sensorManager.registerListener(listener, gyroscope, SensorManager.SENSOR_DELAY_FASTEST)
+                sensorManager.registerListener(listener, rotationVector, SensorManager.SENSOR_DELAY_FASTEST)
 
                 onDispose {
                     sensorManager.unregisterListener(listener)
@@ -154,23 +155,42 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-fun processRotationAxis(previousValue: Float, currentValue: Float): Float {
-    var newValue = currentValue
-    var oldValue = previousValue
+const val TAU: Float = 2 * kotlin.math.PI.toFloat()
+const val PI: Float = kotlin.math.PI.toFloat()
 
-    // Handle wraparound between 1 and -1
-    if (oldValue > 0.5f && newValue < -0.5f) {
-        newValue += 2f
-    } else if (oldValue < -0.5f && newValue > 0.5f) {
-        oldValue += 2f
+val textFont = FontFamily(
+    Font(R.font.cascadia_mono)
+)
+
+fun convertToRadian(value: Float): Float
+{
+    return PI + PI * value
+}
+
+fun getAngleDifference(radianStart: Float, radianEnd: Float): Float {
+    val difference = radianEnd - radianStart
+    val normalizedDifference = (difference + PI) % TAU - PI
+    return if (normalizedDifference < -PI) {
+        normalizedDifference + TAU
+    } else {
+        normalizedDifference
     }
+}
 
-    // Normalize the value back to the range [-1, 1]
-    if (newValue > 1f) {
-        newValue -= 2f
+fun formatWithSign(value: Float): String {
+    return if (value >= 0) {
+        "+%.2f".format(value)
+    } else {
+        "%.2f".format(value)
     }
+}
 
-    return newValue
+fun formatWithoutSign(value: Float): String {
+    return if (value >= 0) {
+        "%.2f".format(value)
+    } else {
+        "%.2f".format(value)
+    }
 }
 
 @Composable
@@ -190,17 +210,32 @@ fun ShowSensorData(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center
     ) {
+
         Text(
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
             color = MaterialTheme.colors.primary,
-            text = ("\n\n\n"
-                    + "Linear accel: %.2f | %.2f | %.2f".format(straightAcceleration.first, straightAcceleration.second, straightAcceleration.third) + "\n"
-                    + "Spin accel: %.2f | %.2f | %.2f".format(spinAcceleration.first, spinAcceleration.second, spinAcceleration.third) + "\n"
-                    + "Rotation: %.2f | %.2f | %.2f".format(rotation.first, rotation.second, rotation.third) + "\n\n"
-                    + "Spin velo: %.2f".format(spinVelocity.third) + "\n"
-                    + "Spin velo (clockwise): %.2f".format(maxSpinVelocity.third) + "\n"
-                    + "Spin velo (counter \"): %.2f".format(minSpinVelocity.third) + "\n"
+            fontFamily = textFont,
+            text = (
+                "\n\n\n\n" +
+//                "Linear: %s|%s|%s".format(
+//                    formatWithSign(straightAcceleration.first),
+//                    formatWithSign(straightAcceleration.second),
+//                    formatWithSign(straightAcceleration.third)
+//                ) + "\n" +
+//                "Angular: %s|%s|%s".format(
+//                    formatWithSign(spinAcceleration.first),
+//                    formatWithSign(spinAcceleration.second),
+//                    formatWithSign(spinAcceleration.third)
+//                ) + "\n" +
+//                "Rotation: %s|%s|%s".format(
+//                    formatWithSign(rotation.first),
+//                    formatWithSign(rotation.second),
+//                    formatWithSign(rotation.third)
+//                ) + "\n" +
+                "Spin: %s".format(formatWithSign(spinVelocity.third / TAU)) + " / s\n" +
+                "Max Spin ↺: %s".format(formatWithoutSign(maxSpinVelocity.third / TAU)) + " / s\n" +
+                "Max Spin ↻: %s".format(formatWithoutSign(-minSpinVelocity.third / TAU)) + " / s\n"
                     )
         )
 
@@ -214,7 +249,8 @@ fun ShowSensorData(
 }
 
 @Composable
-fun WearApp(greetingName: String) {
+fun WearApp()
+{
     ActivityRelayTheme {
         Column(
             modifier = Modifier
@@ -240,6 +276,7 @@ fun WearApp(greetingName: String) {
 
 @Preview(device = Devices.WEAR_OS_SMALL_ROUND, showSystemUi = true)
 @Composable
-fun DefaultPreview() {
-    WearApp("Preview Android")
+fun DefaultPreview()
+{
+    WearApp()
 }
